@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'dart:async';
 import '../api/qbittorrent_api.dart';
 import '../constants/app_constants.dart';
+import '../constants/strings.dart';
 import 'login_screen.dart';
 
 class ServerConfigScreen extends StatefulWidget {
@@ -13,6 +15,8 @@ class ServerConfigScreen extends StatefulWidget {
 class _ServerConfigScreenState extends State<ServerConfigScreen> {
   final _urlController = TextEditingController();
   final _prefs = SharedPreferences.getInstance();
+  bool _isLoading = false;
+  String? _errorMessage;
 
   @override
   void initState() {
@@ -34,12 +38,34 @@ class _ServerConfigScreenState extends State<ServerConfigScreen> {
     }
   }
 
-  Future<void> _saveUrl() async {
-    final url = _urlController.text.trim();
+  String? _validateUrl(String url) {
     if (url.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Please enter server URL')),
-      );
+      return Strings.pleaseEnterServerUrl;
+    }
+    
+    // 确保 URL 格式正确
+    final uri = Uri.tryParse(url.startsWith('http') ? url : 'http://$url');
+    if (uri == null || !uri.hasScheme || !uri.hasAuthority) {
+      return Strings.invalidServerUrl;
+    }
+    
+    return null;
+  }
+
+  Future<void> _saveUrl() async {
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+
+    final url = _urlController.text.trim();
+    final validationError = _validateUrl(url);
+    
+    if (validationError != null) {
+      setState(() {
+        _errorMessage = validationError;
+        _isLoading = false;
+      });
       return;
     }
 
@@ -49,24 +75,35 @@ class _ServerConfigScreenState extends State<ServerConfigScreen> {
       final api = Provider.of<QBittorrentAPI>(context, listen: false);
       api.setBaseUrl(formattedUrl);
 
+      // 测试连接
+      try {
+        await api.login('', ''); // 尝试连接服务器
+      } catch (e) {
+        print('Connection test error: $e');
+        // 忽略登录错误，我们只是测试连接
+      }
+
       final prefs = await _prefs;
       await prefs.setString(AppConstants.serverUrlKey, formattedUrl);
 
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(builder: (context) => LoginScreen()),
-      );
+      if (mounted) {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (context) => LoginScreen()),
+        );
+      }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Invalid server URL')),
-      );
+      setState(() {
+        _errorMessage = '无法连接到服务器: $e';
+        _isLoading = false;
+      });
     }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text('Server Configuration')),
+      appBar: AppBar(title: Text(Strings.serverConfig)),
       body: Padding(
         padding: EdgeInsets.all(16.0),
         child: Column(
@@ -75,15 +112,20 @@ class _ServerConfigScreenState extends State<ServerConfigScreen> {
             TextField(
               controller: _urlController,
               decoration: InputDecoration(
-                labelText: 'Server URL',
-                hintText: 'Example: http://192.168.1.100:8080',
+                labelText: Strings.serverUrl,
+                hintText: Strings.serverUrlHint,
+                errorText: _errorMessage,
               ),
+              enabled: !_isLoading,
             ),
             SizedBox(height: 20),
-            ElevatedButton(
-              onPressed: _saveUrl,
-              child: Text('Connect to Server'),
-            ),
+            if (_isLoading)
+              CircularProgressIndicator()
+            else
+              ElevatedButton(
+                onPressed: _saveUrl,
+                child: Text(Strings.connectToServer),
+              ),
           ],
         ),
       ),
