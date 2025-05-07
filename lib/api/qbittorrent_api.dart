@@ -1,12 +1,25 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
+import 'package:logger/logger.dart';
 
 class QBittorrentAPI extends ChangeNotifier {
   String? baseUrl;
   String? _sid;
 
   QBittorrentAPI({this.baseUrl});
+
+  final dio = Dio(
+    BaseOptions(
+      connectTimeout: const Duration(seconds: 20),
+      receiveTimeout: const Duration(seconds: 20),
+    ),
+  );
+
+  final log = Logger(
+    printer: PrettyPrinter(),
+  );
 
   void setBaseUrl(String url) {
     baseUrl = url;
@@ -16,33 +29,19 @@ class QBittorrentAPI extends ChangeNotifier {
 
   Future<bool> login(String username, String password) async {
     if (baseUrl == null) throw Exception('Server URL not set');
-    
-    try {
-      final response = await http.post(
-        Uri.parse('$baseUrl/api/v2/auth/login'),
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-          'Accept': 'application/json',
-        },
-        body: {
-          'username': username,
-          'password': password,
-        },
-      );
-
-      if (response.statusCode == 200) {
-        _sid = response.headers['set-cookie']?.split(';')[0].split('=')[1];
-        notifyListeners();
-        return true;
-      } else {
-        print('Login failed with status code: ${response.statusCode}');
-        print('Response body: ${response.body}');
-        return false;
-      }
-    } catch (e) {
-      print('Login error: $e');
-      throw Exception('Failed to connect to server: $e');
+    final response = await http.post(
+      Uri.parse('$baseUrl/api/v2/auth/login'),
+      body: {
+        'username': username,
+        'password': password,
+      },
+    );
+    if (response.statusCode == 200) {
+      _sid = response.headers['set-cookie']?.split(';')[0].split('=')[1];
+      notifyListeners();
+      return true;
     }
+    return false;
   }
 
   Future<List<dynamic>> getTorrents() async {
@@ -164,4 +163,4 @@ class QBittorrentAPI extends ChangeNotifier {
       throw Exception('Failed to delete torrent: $e');
     }
   }
-} 
+}
